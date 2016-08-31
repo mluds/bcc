@@ -58,8 +58,8 @@ set(clang_libs ${libclangFrontend} ${libclangSerialization} ${libclangDriver} ${
   ${libclangAST} ${libclangLex} ${libclangBasic})
 
 # Link against LLVM libraries
-target_link_libraries(bcc-shared b_frontend clang_frontend ${clang_libs} ${expanded_libs} ${LIBELF_LIBRARIES})
-target_link_libraries(bcc-static b_frontend clang_frontend bcc-loader-static ${clang_libs} ${expanded_libs} ${LIBELF_LIBRARIES})
+target_link_libraries(bcc-shared b_frontend clang_frontend pass_probe-static ${clang_libs} ${expanded_libs} ${LIBELF_LIBRARIES})
+target_link_libraries(bcc-static b_frontend clang_frontend bcc-loader-static pass_probe-static ${clang_libs} ${expanded_libs} ${LIBELF_LIBRARIES})
 
 install(TARGETS bcc-shared LIBRARY COMPONENT libbcc
   DESTINATION ${CMAKE_INSTALL_LIBDIR})

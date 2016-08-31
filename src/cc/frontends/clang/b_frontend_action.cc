@@ -201,14 +201,14 @@ bool ProbeVisitor::VisitUnaryOperator(UnaryOperator *E) {
     return true;
   if (!ProbeChecker(E, ptregs_).needs_probe())
     return true;
-  memb_visited_.insert(E);
-  Expr *sub = E->getSubExpr();
-  string rhs = rewriter_.getRewrittenText(SourceRange(sub->getLocStart(), sub->getLocEnd()));
-  string text;
-  text = "({ typeof(" + E->getType().getAsString() + ") _val; memset(&_val, 0, sizeof(_val));";
-  text += " bpf_probe_read(&_val, sizeof(_val), (u64)";
-  text += rhs + "); _val; })";
-  rewriter_.ReplaceText(SourceRange(E->getLocStart(), E->getLocEnd()), text);
+  //memb_visited_.insert(E);
+  //Expr *sub = E->getSubExpr();
+  //string rhs = rewriter_.getRewrittenText(SourceRange(sub->getLocStart(), sub->getLocEnd()));
+  //string text;
+  //text = "({ typeof(" + E->getType().getAsString() + ") _val; memset(&_val, 0, sizeof(_val));";
+  //text += " bpf_probe_read(&_val, sizeof(_val), (u64)";
+  //text += rhs + "); _val; })";
+  //rewriter_.ReplaceText(SourceRange(E->getLocStart(), E->getLocEnd()), text);
   return true;
 }
 bool ProbeVisitor::VisitMemberExpr(MemberExpr *E) {
