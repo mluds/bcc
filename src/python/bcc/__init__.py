@@ -218,12 +218,12 @@ class BPF(object):
     def load_func(self, func_name, prog_type):
         if func_name in self.funcs:
             return self.funcs[func_name]
-
         if not lib.bpf_function_start(self.module, func_name.encode("ascii")):
             raise Exception("Unknown program %s" % func_name)
 
-        log_buf = ct.create_string_buffer(65536) if self.debug else None
-
+        prog_len = lib.bpf_function_size(self.module, func_name.encode("ascii"))
+        instruc_c = prog_len / 8 # sizeof(struct bpf_insn)
+        log_buf = ct.create_string_buffer(instruc_c * 128) if self.debug else None
         fd = lib.bpf_prog_load(prog_type,
                 lib.bpf_function_start(self.module, func_name.encode("ascii")),
                 lib.bpf_function_size(self.module, func_name.encode("ascii")),
@@ -235,12 +235,12 @@ class BPF(object):
             print(log_buf.value.decode(), file=sys.stderr)
 
         if fd < 0:
+            errstr = os.strerror(ct.get_errno())
             if self.debug & DEBUG_BPF:
-                errstr = os.strerror(ct.get_errno())
                 raise Exception("Failed to load BPF program %s: %s" %
                                 (func_name, errstr))
             else:
-                raise Exception("Failed to load BPF program %s" % func_name)
+                raise Exception("Failed to load BPF program %s: %s" % (func_name, errstr))
 
         fn = BPF.Function(self, func_name, fd)
         self.funcs[func_name] = fn
