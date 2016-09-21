@@ -38,12 +38,12 @@ struct tcp_event_t {
 };
 
 BPF_PERF_OUTPUT(tcp_event);
-BPF_HASH(connectsock, u32, struct sock *);
-BPF_HASH(closesock, u32, struct sock *);
+BPF_HASH(connectsock, u64, struct sock *);
+BPF_HASH(closesock, u64, struct sock *);
 
 int kprobe__tcp_v4_connect(struct pt_regs *ctx, struct sock *sk)
 {
-	u32 pid = bpf_get_current_pid_tgid();
+	u64 pid = bpf_get_current_pid_tgid();
 
 	##FILTER_PID##
 
@@ -56,7 +56,7 @@ int kprobe__tcp_v4_connect(struct pt_regs *ctx, struct sock *sk)
 int kretprobe__tcp_v4_connect(struct pt_regs *ctx)
 {
 	int ret = PT_REGS_RC(ctx);
-	u32 pid = bpf_get_current_pid_tgid();
+	u64 pid = bpf_get_current_pid_tgid();
 
 	struct sock **skpp;
 	skpp = connectsock.lookup(&pid);
@@ -94,7 +94,7 @@ int kretprobe__tcp_v4_connect(struct pt_regs *ctx)
 	// output
 	struct tcp_event_t evt = {
 		.type = "connect",
-		.pid = pid,
+		.pid = pid >> 32,
 		.saddr = saddr,
 		.daddr = daddr,
 		.sport = ntohs(sport),
@@ -115,7 +115,7 @@ int kretprobe__tcp_v4_connect(struct pt_regs *ctx)
 
 int kprobe__tcp_close(struct pt_regs *ctx, struct sock *sk)
 {
-	u32 pid = bpf_get_current_pid_tgid();
+	u64 pid = bpf_get_current_pid_tgid();
 
 	##FILTER_PID##
 
@@ -127,7 +127,7 @@ int kprobe__tcp_close(struct pt_regs *ctx, struct sock *sk)
 
 int kretprobe__tcp_close(struct pt_regs *ctx)
 {
-	u32 pid = bpf_get_current_pid_tgid();
+	u64 pid = bpf_get_current_pid_tgid();
 
 	struct sock **skpp;
 	skpp = closesock.lookup(&pid);
@@ -156,7 +156,7 @@ int kretprobe__tcp_close(struct pt_regs *ctx)
 	// output
 	struct tcp_event_t evt = {
 		.type = "close",
-		.pid = pid,
+		.pid = pid >> 32,
 		.saddr = saddr,
 		.daddr = daddr,
 		.sport = ntohs(sport),
@@ -178,7 +178,7 @@ int kretprobe__tcp_close(struct pt_regs *ctx)
 int kretprobe__inet_csk_accept(struct pt_regs *ctx)
 {
 	struct sock *newsk = (struct sock *)PT_REGS_RC(ctx);
-	u32 pid = bpf_get_current_pid_tgid();
+	u64 pid = bpf_get_current_pid_tgid();
 
 	##FILTER_PID##
 
@@ -208,7 +208,8 @@ int kretprobe__inet_csk_accept(struct pt_regs *ctx)
 #endif
 
 	if (family == AF_INET) {
-		struct tcp_event_t evt = {.type = "accept", .pid = pid, .netns = net_ns_inum};
+		struct tcp_event_t evt = {.type = "accept", .netns = net_ns_inum};
+		evt.pid = pid >> 32;
 		bpf_probe_read(&evt.saddr, sizeof(u32),
 			&newsk->__sk_common.skc_rcv_saddr);
 		bpf_probe_read(&evt.daddr, sizeof(u32),
