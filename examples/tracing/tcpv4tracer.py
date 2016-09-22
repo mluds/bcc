@@ -24,6 +24,8 @@ bpf_text = """
 #include <net/sock.h>
 #include <net/inet_sock.h>
 #include <net/net_namespace.h>
+#include <net/netfilter/nf_nat.h>
+#include <net/netfilter/nf_nat_l3proto.h>
 #include <bcc/proto.h>
 
 struct tcp_event_t {
@@ -40,6 +42,8 @@ struct tcp_event_t {
 BPF_PERF_OUTPUT(tcp_event);
 BPF_HASH(connectsock, u64, struct sock *);
 BPF_HASH(closesock, u64, struct sock *);
+BPF_HASH(tcpsockbuff, u64, const struct nf_conntrack_tuple *);
+BPF_HASH(ipsockbuff, u64, const struct nf_conntrack_tuple *);
 
 int kprobe__tcp_v4_connect(struct pt_regs *ctx, struct sock *sk)
 {
@@ -220,6 +224,119 @@ int kretprobe__inet_csk_accept(struct pt_regs *ctx)
 		tcp_event.perf_submit(ctx, &evt, sizeof(evt));
 	}
 	// else drop
+
+	return 0;
+}
+
+int kprobe__nf_nat_ipv4_manip_pkt(	struct pt_regs *ctx,
+					struct sk_buff *skb,
+					unsigned int iphdroff,
+					const struct nf_nat_l4proto *l4proto,
+					const struct nf_conntrack_tuple *target,
+					enum nf_nat_manip_type maniptype)
+{
+	u64 pid = bpf_get_current_pid_tgid();
+
+	##FILTER_PID##
+
+	// stash the nf_conntrack_tuple ptr for lookup on return
+	ipsockbuff.update(&pid, &target);
+
+	return 0;
+}
+
+int kretprobe__nf_nat_ipv4_manip_pkt(	struct pt_regs *ctx)
+{
+	int ret = PT_REGS_RC(ctx);
+	u64 pid = bpf_get_current_pid_tgid();
+
+	const struct nf_conntrack_tuple **nfctpp;
+	nfctpp = ipsockbuff.lookup(&pid);
+	if (nfctpp == 0) {
+		return 0;	// missed entry
+	}
+
+	struct nf_conntrack_tuple n;
+	bpf_probe_read(&n, sizeof(struct nf_conntrack_tuple), (struct nf_conntrack_tuple *)(*nfctpp));
+
+	// pull in details
+	u32 saddr = 0, daddr = 0, net_ns_inum = 0;
+	u16 sport = 0, dport = 0;
+	bpf_probe_read(&saddr, sizeof(saddr), &n.src.u3.ip);
+	bpf_probe_read(&daddr, sizeof(daddr), &n.dst.u3.ip);
+
+	// output
+	struct tcp_event_t evt = {
+		.type = "ip_nat",
+		.pid = pid >> 32,
+		.saddr = saddr,
+		.daddr = daddr,
+		.sport = ntohs(sport),
+		.dport = ntohs(dport),
+		.netns = net_ns_inum,
+	};
+
+	bpf_get_current_comm(&evt.comm, sizeof(evt.comm));
+	tcp_event.perf_submit(ctx, &evt, sizeof(evt));
+
+	ipsockbuff.delete(&pid);
+
+	return 0;
+}
+
+int kprobe__tcp_manip_pkt(	struct pt_regs *ctx,
+				struct sk_buff *skb,
+				const struct nf_nat_l3proto *l3proto,
+				unsigned int iphdroff, unsigned int hdroff,
+				const struct nf_conntrack_tuple *tuple,
+				enum nf_nat_manip_type maniptype)
+{
+	u64 pid = bpf_get_current_pid_tgid();
+
+	##FILTER_PID##
+
+	// stash the nf_conntrack_tuple ptr for lookup on return
+	tcpsockbuff.update(&pid, &tuple);
+
+	return 0;
+}
+
+int kretprobe__tcp_manip_pkt(struct pt_regs *ctx)
+{
+	int ret = PT_REGS_RC(ctx);
+	u64 pid = bpf_get_current_pid_tgid();
+
+	const struct nf_conntrack_tuple **nfctpp;
+	nfctpp = tcpsockbuff.lookup(&pid);
+	if (nfctpp == 0) {
+		return 0;	// missed entry
+	}
+
+
+	struct nf_conntrack_tuple n;
+	bpf_probe_read(&n, sizeof(struct nf_conntrack_tuple), (struct nf_conntrack_tuple *)(*nfctpp));
+
+	// pull in details
+	u32 saddr = 0, daddr = 0, net_ns_inum = 0;
+	u16 sport = 0, dport = 0;
+	bpf_probe_read(&sport, sizeof(sport), &n.src.u.tcp.port);
+	bpf_probe_read(&dport, sizeof(dport), &n.dst.u.tcp.port);
+
+	// output
+	struct tcp_event_t evt = {
+		.type = "tcp_nat",
+		.pid = pid >> 32,
+		.saddr = saddr,
+		.daddr = daddr,
+		.sport = ntohs(sport),
+		.dport = ntohs(dport),
+		.netns = net_ns_inum,
+	};
+
+	bpf_get_current_comm(&evt.comm, sizeof(evt.comm));
+	tcp_event.perf_submit(ctx, &evt, sizeof(evt));
+
+	tcpsockbuff.delete(&pid);
 
 	return 0;
 }
