@@ -36,7 +36,20 @@ struct tcp_event_t {
 	u32 daddr;
 	u16 sport;
 	u16 dport;
+	u32 saddr_nat;
+	u32 daddr_nat;
+	u16 sport_nat;
+	u16 dport_nat;
 	u32 netns;
+};
+
+struct nat_t {
+	u32 saddr;
+	u32 daddr;
+	u16 sport;
+	u16 dport;
+	char needs_ip;
+	char padding[3];
 };
 
 BPF_PERF_OUTPUT(tcp_event);
@@ -44,6 +57,7 @@ BPF_HASH(connectsock, u64, struct sock *);
 BPF_HASH(closesock, u64, struct sock *);
 BPF_HASH(tcpsockbuff, u64, const struct nf_conntrack_tuple *);
 BPF_HASH(ipsockbuff, u64, const struct nf_conntrack_tuple *);
+BPF_HASH(natmap, u64, struct nat_t);
 
 int kprobe__tcp_v4_connect(struct pt_regs *ctx, struct sock *sk)
 {
@@ -75,6 +89,8 @@ int kretprobe__tcp_v4_connect(struct pt_regs *ctx)
 		return 0;
 	}
 
+	struct nat_t *nat;
+	nat = natmap.lookup(&pid);
 
 	// pull in details
 	struct sock *skp = *skpp;
@@ -95,6 +111,15 @@ int kretprobe__tcp_v4_connect(struct pt_regs *ctx)
 	net_ns_inum = 0;
 #endif
 
+	u32 saddr_nat = 0, daddr_nat = 0;
+	u16 sport_nat = 0, dport_nat = 0;
+	if (nat != 0) {
+	    bpf_probe_read(&saddr_nat, sizeof(saddr_nat), &nat->saddr);
+	    bpf_probe_read(&daddr_nat, sizeof(daddr_nat), &nat->daddr);
+	    bpf_probe_read(&sport_nat, sizeof(sport_nat), &nat->sport);
+	    bpf_probe_read(&dport_nat, sizeof(dport_nat), &nat->dport);
+	}
+
 	// output
 	struct tcp_event_t evt = {
 		.type = "connect",
@@ -103,6 +128,10 @@ int kretprobe__tcp_v4_connect(struct pt_regs *ctx)
 		.daddr = daddr,
 		.sport = ntohs(sport),
 		.dport = ntohs(dport),
+		.saddr_nat = saddr_nat,
+		.daddr_nat = daddr_nat,
+		.sport_nat = ntohs(sport_nat),
+		.dport_nat = ntohs(dport_nat),
 		.netns = net_ns_inum,
 	};
 
@@ -165,6 +194,10 @@ int kretprobe__tcp_close(struct pt_regs *ctx)
 		.daddr = daddr,
 		.sport = ntohs(sport),
 		.dport = ntohs(dport),
+		.saddr_nat = 0,
+		.daddr_nat = 0,
+		.sport_nat = 0,
+		.dport_nat = 0,
 		.netns = net_ns_inum,
 	};
 
@@ -175,6 +208,12 @@ int kretprobe__tcp_close(struct pt_regs *ctx)
 	tcp_event.perf_submit(ctx, &evt, sizeof(evt));
 
 	closesock.delete(&pid);
+
+	struct nat_t *nat;
+	nat = natmap.lookup(&pid);
+	if (nat != 0) {
+		natmap.delete(&pid);
+	}
 
 	return 0;
 }
@@ -220,6 +259,10 @@ int kretprobe__inet_csk_accept(struct pt_regs *ctx)
 			&newsk->__sk_common.skc_daddr);
 			evt.sport = lport;
 		evt.dport = 0;
+		evt.saddr_nat = 0;
+		evt.daddr_nat = 0;
+		evt.sport_nat = 0;
+		evt.dport_nat = 0;
 		bpf_get_current_comm(&evt.comm, sizeof(evt.comm));
 		tcp_event.perf_submit(ctx, &evt, sizeof(evt));
 	}
@@ -256,6 +299,18 @@ int kretprobe__nf_nat_ipv4_manip_pkt(	struct pt_regs *ctx)
 		return 0;	// missed entry
 	}
 
+	struct nat_t *nat;
+	nat = natmap.lookup(&pid);
+	if (nat == 0) {
+		return 0;	// no nat
+	}
+
+	char needs_ip = 0;
+	bpf_probe_read(&needs_ip, sizeof(needs_ip), &nat->needs_ip);
+	if (!needs_ip) {
+		return 0;	// already got the info
+	}
+
 	struct nf_conntrack_tuple n;
 	bpf_probe_read(&n, sizeof(struct nf_conntrack_tuple), (struct nf_conntrack_tuple *)(*nfctpp));
 
@@ -265,19 +320,18 @@ int kretprobe__nf_nat_ipv4_manip_pkt(	struct pt_regs *ctx)
 	bpf_probe_read(&saddr, sizeof(saddr), &n.src.u3.ip);
 	bpf_probe_read(&daddr, sizeof(daddr), &n.dst.u3.ip);
 
-	// output
-	struct tcp_event_t evt = {
-		.type = "ip_nat",
-		.pid = pid >> 32,
+	u16 natted_sport = 0;
+	u16 natted_dport = 0;
+	bpf_probe_read(&natted_sport, sizeof(natted_sport), &nat->sport);
+	bpf_probe_read(&natted_dport, sizeof(natted_dport), &nat->dport);
+
+	struct nat_t newnat = {
+		.sport = natted_sport,
+		.dport = natted_dport,
 		.saddr = saddr,
 		.daddr = daddr,
-		.sport = ntohs(sport),
-		.dport = ntohs(dport),
-		.netns = net_ns_inum,
-	};
-
-	bpf_get_current_comm(&evt.comm, sizeof(evt.comm));
-	tcp_event.perf_submit(ctx, &evt, sizeof(evt));
+		.needs_ip = 0};
+	natmap.update(&pid, &newnat);
 
 	ipsockbuff.delete(&pid);
 
@@ -312,6 +366,11 @@ int kretprobe__tcp_manip_pkt(struct pt_regs *ctx)
 		return 0;	// missed entry
 	}
 
+	struct nat_t *nat;
+	nat = natmap.lookup(&pid);
+	if (nat != 0) {
+		return 0;	// alredy got the info
+	}
 
 	struct nf_conntrack_tuple n;
 	bpf_probe_read(&n, sizeof(struct nf_conntrack_tuple), (struct nf_conntrack_tuple *)(*nfctpp));
@@ -322,19 +381,13 @@ int kretprobe__tcp_manip_pkt(struct pt_regs *ctx)
 	bpf_probe_read(&sport, sizeof(sport), &n.src.u.tcp.port);
 	bpf_probe_read(&dport, sizeof(dport), &n.dst.u.tcp.port);
 
-	// output
-	struct tcp_event_t evt = {
-		.type = "tcp_nat",
-		.pid = pid >> 32,
-		.saddr = saddr,
-		.daddr = daddr,
-		.sport = ntohs(sport),
-		.dport = ntohs(dport),
-		.netns = net_ns_inum,
-	};
-
-	bpf_get_current_comm(&evt.comm, sizeof(evt.comm));
-	tcp_event.perf_submit(ctx, &evt, sizeof(evt));
+	struct nat_t newnat = {
+		.sport = sport,
+		.dport = dport,
+		.saddr = 0,
+		.daddr = 0,
+		.needs_ip = 1};
+	natmap.update(&pid, &newnat);
 
 	tcpsockbuff.delete(&pid);
 
@@ -352,16 +405,24 @@ class TCPEvt(ctypes.Structure):
 		("daddr", ctypes.c_uint),
 		("sport", ctypes.c_ushort),
 		("dport", ctypes.c_ushort),
+		("saddr_nat", ctypes.c_uint),
+		("daddr_nat", ctypes.c_uint),
+		("sport_nat", ctypes.c_ushort),
+		("dport_nat", ctypes.c_ushort),
 		("netns", ctypes.c_uint),
 	]
 
 def print_event(cpu, data, size):
 	event = ctypes.cast(data, ctypes.POINTER(TCPEvt)).contents
-	print("%-12s %-6s %-16s %-16s %-16s %-6s %-6s %-8s" % (event.type.decode('utf-8'), event.pid, event.comm.decode('utf-8'),
+	print("%-12s %-6s %-16s %-16s %-16s %-6s %-6s %-16s %-16s %-6s %-6s %-8s" % (event.type.decode('utf-8'), event.pid, event.comm.decode('utf-8'),
 	    inet_ntoa(event.saddr),
 	    inet_ntoa(event.daddr),
 	    event.sport,
 	    event.dport,
+	    inet_ntoa(event.saddr_nat),
+	    inet_ntoa(event.daddr_nat),
+	    event.sport_nat,
+	    event.dport_nat,
 	    event.netns))
 
 if args.pid:
@@ -374,8 +435,8 @@ else:
 b = BPF(text=bpf_text)
 
 # header
-print("%-12s %-6s %-16s %-16s %-16s %-6s %-6s %-8s" % ("TYPE", "PID", "COMM", "SADDR", "DADDR",
-    "SPORT", "DPORT", "NETNS"))
+print("%-12s %-6s %-16s %-16s %-16s %-6s %-6s %-16s %-16s %-6s %-6s %-8s" % ("TYPE", "PID", "COMM", "SADDR", "DADDR",
+    "SPORT", "DPORT", "SADDR_NAT", "DADDR_NAT", "SPORT_NAT", "DPORT_NAT", "NETNS"))
 
 def inet_ntoa(addr):
 	dq = ''
