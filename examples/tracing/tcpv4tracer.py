@@ -76,9 +76,15 @@ int kretprobe__tcp_v4_connect(struct pt_regs *ctx)
 	int ret = PT_REGS_RC(ctx);
 	u64 pid = bpf_get_current_pid_tgid();
 
+	struct nat_t *nat;
+	nat = natmap.lookup(&pid);
+
 	struct sock **skpp;
 	skpp = connectsock.lookup(&pid);
 	if (skpp == 0) {
+		if (nat != 0) {
+			natmap.delete(&pid);
+		}
 		return 0;	// missed entry
 	}
 
@@ -88,9 +94,6 @@ int kretprobe__tcp_v4_connect(struct pt_regs *ctx)
 		connectsock.delete(&pid);
 		return 0;
 	}
-
-	struct nat_t *nat;
-	nat = natmap.lookup(&pid);
 
 	// pull in details
 	struct sock *skp = *skpp;
