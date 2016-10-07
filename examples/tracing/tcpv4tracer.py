@@ -106,7 +106,11 @@ int kretprobe__tcp_v4_connect(struct pt_regs *ctx)
 	bpf_probe_read(&family, sizeof(family), &skp->__sk_common.skc_family);
 
 	bpf_get_current_comm(&evt.comm, sizeof(evt.comm));
-	tcp_event.perf_submit(ctx, &evt, sizeof(evt));
+
+	// do not send event if IP address is 0.0.0.0 or port is 0
+	if (evt.saddr != 0 && evt.daddr != 0 && evt.sport != 0 && evt.dport != 0) {
+		tcp_event.perf_submit(ctx, &evt, sizeof(evt));
+	}
 
 	connectsock.delete(&pid);
 
@@ -168,7 +172,11 @@ int kretprobe__tcp_close(struct pt_regs *ctx)
 	bpf_probe_read(&family, sizeof(family), &skp->__sk_common.skc_family);
 
 	bpf_get_current_comm(&evt.comm, sizeof(evt.comm));
-	tcp_event.perf_submit(ctx, &evt, sizeof(evt));
+
+	// do not send event if IP address is 0.0.0.0 or port is 0
+	if (evt.saddr != 0 && evt.daddr != 0 && evt.sport != 0 && evt.dport != 0) {
+		tcp_event.perf_submit(ctx, &evt, sizeof(evt));
+	}
 
 	closesock.delete(&pid);
 
