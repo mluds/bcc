@@ -201,10 +201,11 @@ int kretprobe__inet_csk_accept(struct pt_regs *ctx)
 		return 0;
 
 	// pull in details
-	u16 family = 0, lport = 0;
+	u16 family = 0, lport = 0, dport = 0;
 	u32 net_ns_inum = 0;
 	bpf_probe_read(&family, sizeof(family), &newsk->__sk_common.skc_family);
 	bpf_probe_read(&lport, sizeof(lport), &newsk->__sk_common.skc_num);
+	bpf_probe_read(&dport, sizeof(dport), &newsk->__sk_common.skc_dport);
 
 // Get network namespace id, if kernel supports it
 #ifdef CONFIG_NET_NS
@@ -223,7 +224,7 @@ int kretprobe__inet_csk_accept(struct pt_regs *ctx)
 		bpf_probe_read(&evt.daddr, sizeof(u32),
 			&newsk->__sk_common.skc_daddr);
 			evt.sport = lport;
-		evt.dport = 0;
+		evt.dport = ntohs(dport);
 		bpf_get_current_comm(&evt.comm, sizeof(evt.comm));
 		tcp_event.perf_submit(ctx, &evt, sizeof(evt));
 	}
