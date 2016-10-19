@@ -67,19 +67,21 @@ BPF_PERF_OUTPUT(tcp_ipv6_event);
 
 BPF_HASH(connectsock, u64, struct sock *);
 
-int trace_connect_entry(struct pt_regs *ctx, struct sock *sk)
+int trace_tcp_set_state_entry(struct pt_regs *ctx, struct sock *sk, int state)
 {
         u64 pid = bpf_get_current_pid_tgid();
 
         ##FILTER_PID##
 
-        // stash the sock ptr for lookup on return
-        connectsock.update(&pid, &sk);
+        // stash the sock ptr for lookup on return if the new state is TCP_ESTABLISHED
+        if (state == TCP_ESTABLISHED) {
+            connectsock.update(&pid, &sk);
+        }
 
         return 0;
 }
 
-static int trace_connect_return(struct pt_regs *ctx, unsigned char ipver)
+int trace_tcp_set_state_return(struct pt_regs *ctx)
 {
         int ret = PT_REGS_RC(ctx);
         u64 pid = bpf_get_current_pid_tgid();
@@ -101,7 +103,8 @@ static int trace_connect_return(struct pt_regs *ctx, unsigned char ipver)
         struct sock *skp = *skpp;
         struct ns_common *ns;
         u32 net_ns_inum = 0;
-        u16 sport = 0, dport = 0;
+        u16 sport = 0, dport = 0, family = 0;
+        u8 ipver = 0;
 
         // Get network namespace id, if kernel supports it
         #ifdef CONFIG_NET_NS
@@ -116,13 +119,15 @@ static int trace_connect_return(struct pt_regs *ctx, unsigned char ipver)
 
         bpf_probe_read(&sport, sizeof(sport), &((struct inet_sock *)skp)->inet_sport);
         bpf_probe_read(&dport, sizeof(dport), &skp->__sk_common.skc_dport);
+        bpf_probe_read(&family, sizeof(family), &skp->__sk_common.skc_family);
 
         // if ports are 0, ignore
         if (sport == 0 || dport == 0) {
                 return 0;
         }
 
-        if (ipver == 4) {
+        if (family == AF_INET) {
+                ipver = 4;
                 struct tcp_ipv4_event_t evt4 = { 0 };
 
                 u32 saddr = 0, daddr = 0;
@@ -147,7 +152,8 @@ static int trace_connect_return(struct pt_regs *ctx, unsigned char ipver)
                 bpf_get_current_comm(&evt4.comm, sizeof(evt4.comm));
 
                 tcp_ipv4_event.perf_submit(ctx, &evt4, sizeof(evt4));
-        } else /* 6 */ {
+        } else if (family == AF_INET6) {
+                ipver = 4;
                 struct tcp_ipv6_event_t evt6 = { 0 };
 
                 unsigned __int128 saddr = 0, daddr = 0;
@@ -173,20 +179,11 @@ static int trace_connect_return(struct pt_regs *ctx, unsigned char ipver)
 
                 tcp_ipv6_event.perf_submit(ctx, &evt6, sizeof(evt6));
         }
+        // else drop
 
         connectsock.delete(&pid);
 
         return 0;
-}
-
-int trace_connect_v4_return(struct pt_regs *ctx)
-{
-        return trace_connect_return(ctx, 4);
-}
-
-int trace_connect_v6_return(struct pt_regs *ctx)
-{
-        return trace_connect_return(ctx, 6);
 }
 
 int trace_close_entry(struct pt_regs *ctx, struct sock *sk)
@@ -479,10 +476,8 @@ bpf_text = bpf_text.replace('##FILTER_NETNS##', netns_filter)
 
 # initialize BPF
 b = BPF(text=bpf_text)
-b.attach_kprobe(event="tcp_v4_connect", fn_name="trace_connect_entry")
-b.attach_kprobe(event="tcp_v6_connect", fn_name="trace_connect_entry")
-b.attach_kretprobe(event="tcp_v4_connect", fn_name="trace_connect_v4_return")
-b.attach_kretprobe(event="tcp_v6_connect", fn_name="trace_connect_v6_return")
+b.attach_kprobe(event="tcp_set_state", fn_name="trace_tcp_set_state_entry")
+b.attach_kretprobe(event="tcp_set_state", fn_name="trace_tcp_set_state_return")
 b.attach_kprobe(event="tcp_close", fn_name="trace_close_entry")
 b.attach_kretprobe(event="inet_csk_accept", fn_name="trace_accept_return")
 
