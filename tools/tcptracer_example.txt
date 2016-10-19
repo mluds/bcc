@@ -1,0 +1,21 @@
+Demonstrations of tcptracer, the Linux eBPF/bcc version.
+
+
+This tool traces the kernel function performing TCP connections (eg, via a
+connect() or accept() syscalls) and closing them (explicitly or if the process
+dies). Some example output (IP addresses are fake):
+
+```
+# ./tcptracer
+T  PID    COMM             IP SADDR            DADDR            SPORT  DPORT
+CN 2389   telnet           4  192.168.1.2      192.168.1.1      53404  23
+CN 14763  curl             6  ::1              ::1              55782  80
+CL 2389   telnet           4  192.168.1.2      192.168.1.1      53404  23
+CL 14763  curl             6  ::1              ::1              55782  80
+AC 15195  nc               4  10.202.210.1     10.202.109.12    8080   43904
+CL 15195  nc               4  10.202.210.1     10.202.109.12    8080   43904
+
+This output shows three conections, one outgoing from a "telnet" process, one
+outgoing from "curl", and one incoming received by the "nc" process. The output details show
+the kind of event (CN for connection, CL for close and AC for accept), PID, IP
+version, source address, destination address, source port and destination port.
