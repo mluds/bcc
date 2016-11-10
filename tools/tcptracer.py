@@ -122,7 +122,7 @@ int trace_connect_v4_return(struct pt_regs *ctx)
       connectsock.delete(&pid);
       return 0;
   }
-  //
+
   // pull in details
   struct sock *skp = *skpp;
   struct ns_common *ns;
@@ -260,7 +260,6 @@ int trace_connect_v6_return(struct pt_regs *ctx)
   return 0;
 }
 
-
 int trace_tcp_set_state_entry(struct pt_regs *ctx, struct sock *sk, int state)
 {
   u64 pid = bpf_get_current_pid_tgid();
@@ -287,110 +286,6 @@ int trace_tcp_set_state_entry(struct pt_regs *ctx, struct sock *sk, int state)
   bpf_probe_read(&sport, sizeof(sport), &((struct inet_sock *)skp)->inet_sport);
   bpf_probe_read(&dport, sizeof(dport), &skp->__sk_common.skc_dport);
   bpf_probe_read(&family, sizeof(family), &skp->__sk_common.skc_family);
-
-  if (family == AF_INET) {
-      u32 saddr = 0, daddr = 0;
-      bpf_probe_read(&saddr, sizeof(saddr),
-                     &skp->__sk_common.skc_rcv_saddr);
-      bpf_probe_read(&daddr, sizeof(daddr),
-                     &skp->__sk_common.skc_daddr);
-
-      struct ipv4_tuple_t t = {
-          .saddr = saddr,
-          .daddr = daddr,
-          .sport = sport,
-          .dport = dport,
-          .netns = net_ns_inum,
-      };
-
-      struct pid_comm *p;
-      p = tuplepid_ipv4.lookup(&t);
-      if (p == 0) {
-          return 0;       // missed entry
-      }
-
-      // stash the sock ptr for lookup on return if the new state is tcp_established
-      if (state == TCP_ESTABLISHED) {
-          connectsock.update(&pid, &sk);
-      } else if (state == TCP_CLOSE) {
-          tuplepid_ipv4.delete(&t);
-      }
-  } else if (family == AF_INET6) {
-      unsigned __int128 saddr = 0, daddr = 0;
-      bpf_probe_read(&saddr, sizeof(saddr),
-                     &skp->__sk_common.skc_v6_rcv_saddr.in6_u.u6_addr32);
-      bpf_probe_read(&daddr, sizeof(daddr),
-                     &skp->__sk_common.skc_v6_daddr.in6_u.u6_addr32);
-
-      struct ipv6_tuple_t t = { 0 };
-      t.saddr = saddr;
-      t.daddr = daddr;
-      t.sport = sport;
-      t.dport = dport;
-      t.netns = net_ns_inum;
-
-      struct pid_comm *p;
-      p = tuplepid_ipv6.lookup(&t);
-      if (p == 0) {
-          return 0;       // missed entry
-      }
-
-      // stash the sock ptr for lookup on return if the new state is tcp_established
-      if (state == TCP_ESTABLISHED) {
-          connectsock.update(&pid, &sk);
-      } else if (state == TCP_CLOSE) {
-          tuplepid_ipv6.delete(&t);
-      }
-  }
-  // else drop
-
-  return 0;
-}
-
-int trace_tcp_set_state_return(struct pt_regs *ctx)
-{
-  int ret = PT_REGS_RC(ctx);
-  u64 pid = bpf_get_current_pid_tgid();
-
-  struct sock **skpp;
-  skpp = connectsock.lookup(&pid);
-  if (skpp == 0) {
-      return 0;       // missed entry
-  }
-
-  if (ret != 0) {
-      // failed to send SYNC packet, may not have populated
-      // socket __sk_common.{skc_rcv_saddr, ...}
-      connectsock.delete(&pid);
-      return 0;
-  }
-
-  // pull in details
-  struct sock *skp = *skpp;
-  struct ns_common *ns;
-  u32 net_ns_inum = 0;
-  u16 sport = 0, dport = 0, family = 0;
-  u8 ipver = 0;
-
-  // Get network namespace id, if kernel supports it
-#ifdef CONFIG_NET_NS
-  possible_net_t skc_net;
-  bpf_probe_read(&skc_net, sizeof(skc_net), &skp->__sk_common.skc_net);
-  bpf_probe_read(&net_ns_inum, sizeof(net_ns_inum), &skc_net.net->ns.inum);
-#else
-  net_ns_inum = 0;
-#endif
-
-  ##FILTER_NETNS##
-
-  bpf_probe_read(&sport, sizeof(sport), &((struct inet_sock *)skp)->inet_sport);
-  bpf_probe_read(&dport, sizeof(dport), &skp->__sk_common.skc_dport);
-  bpf_probe_read(&family, sizeof(family), &skp->__sk_common.skc_family);
-
-  // if ports are 0, ignore
-  if (sport == 0 || dport == 0) {
-      return 0;
-  }
 
   if (family == AF_INET) {
       ipver = 4;
@@ -421,22 +316,24 @@ int trace_tcp_set_state_return(struct pt_regs *ctx)
           return 0;       // missed entry
       }
 
-      evt4.type = TCP_EVENT_TYPE_CONNECT;
-      evt4.pid = p->pid >> 32;
-      evt4.ip = ipver;
-      evt4.saddr = saddr;
-      evt4.daddr = daddr;
-      evt4.sport = ntohs(sport);
-      evt4.dport = ntohs(dport);
-      evt4.netns = net_ns_inum;
+      if (state == TCP_ESTABLISHED) {
+          evt4.type = TCP_EVENT_TYPE_CONNECT;
+          evt4.pid = p->pid >> 32;
+          evt4.ip = ipver;
+          evt4.saddr = saddr;
+          evt4.daddr = daddr;
+          evt4.sport = ntohs(sport);
+          evt4.dport = ntohs(dport);
+          evt4.netns = net_ns_inum;
 
-      int i;
-      for (i = 0; i < TASK_COMM_LEN; i++) {
-          evt4.comm[i] = p->comm[i];
+          int i;
+          for (i = 0; i < TASK_COMM_LEN; i++) {
+              evt4.comm[i] = p->comm[i];
+          }
+
+          tcp_ipv4_event.perf_submit(ctx, &evt4, sizeof(evt4));
+          tuplepid_ipv4.delete(&t);
       }
-
-      tcp_ipv4_event.perf_submit(ctx, &evt4, sizeof(evt4));
-      tuplepid_ipv4.delete(&t);
   } else if (family == AF_INET6) {
       ipver = 6;
       struct tcp_ipv6_event_t evt6 = { 0 };
@@ -459,28 +356,31 @@ int trace_tcp_set_state_return(struct pt_regs *ctx)
       t.dport = dport;
       t.netns = net_ns_inum;
 
-      struct pid_comm *p;
-      p = tuplepid_ipv6.lookup(&t);
-      if (p == 0) {
-          return 0;       // missed entry
+      // stash the sock ptr for lookup on return if the new state is tcp_established
+      if (state == TCP_ESTABLISHED) {
+          struct pid_comm *p;
+          p = tuplepid_ipv6.lookup(&t);
+          if (p == 0) {
+              return 0;       // missed entry
+          }
+
+          evt6.type = TCP_EVENT_TYPE_CONNECT;
+          evt6.pid = p->pid >> 32;
+          evt6.ip = ipver;
+          evt6.saddr = saddr;
+          evt6.daddr = daddr;
+          evt6.sport = ntohs(sport);
+          evt6.dport = ntohs(dport);
+          evt6.netns = net_ns_inum;
+
+          int i;
+          for (i = 0; i < TASK_COMM_LEN; i++) {
+              evt6.comm[i] = p->comm[i];
+          }
+
+          tcp_ipv6_event.perf_submit(ctx, &evt6, sizeof(evt6));
+          tuplepid_ipv6.delete(&t);
       }
-
-      evt6.type = TCP_EVENT_TYPE_CONNECT;
-      evt6.pid = p->pid >> 32;
-      evt6.ip = ipver;
-      evt6.saddr = saddr;
-      evt6.daddr = daddr;
-      evt6.sport = ntohs(sport);
-      evt6.dport = ntohs(dport);
-      evt6.netns = net_ns_inum;
-
-      int i;
-      for (i = 0; i < TASK_COMM_LEN; i++) {
-          evt6.comm[i] = p->comm[i];
-      }
-
-      tcp_ipv6_event.perf_submit(ctx, &evt6, sizeof(evt6));
-      tuplepid_ipv6.delete(&t);
   }
   // else drop
 
@@ -784,7 +684,6 @@ b.attach_kretprobe(event="tcp_v4_connect", fn_name="trace_connect_v4_return")
 b.attach_kprobe(event="tcp_v6_connect", fn_name="trace_connect_v6_entry")
 b.attach_kretprobe(event="tcp_v6_connect", fn_name="trace_connect_v6_return")
 b.attach_kprobe(event="tcp_set_state", fn_name="trace_tcp_set_state_entry")
-b.attach_kretprobe(event="tcp_set_state", fn_name="trace_tcp_set_state_return")
 b.attach_kprobe(event="tcp_close", fn_name="trace_close_entry")
 b.attach_kretprobe(event="inet_csk_accept", fn_name="trace_accept_return")
 
