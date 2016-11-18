@@ -116,10 +116,11 @@ int trace_connect_v4_return(struct pt_regs *ctx)
       return 0;       // missed entry
   }
 
+  connectsock.delete(&pid);
+
   if (ret != 0) {
       // failed to send SYNC packet, may not have populated
       // socket __sk_common.{skc_rcv_saddr, ...}
-      connectsock.delete(&pid);
       return 0;
   }
 
@@ -145,7 +146,6 @@ int trace_connect_v4_return(struct pt_regs *ctx)
 
   // if ports are 0, ignore
   if (sport == 0 || dport == 0) {
-      connectsock.delete(&pid);
       return 0;
   }
 
@@ -157,7 +157,6 @@ int trace_connect_v4_return(struct pt_regs *ctx)
 
   // if addresses are 0, ignore
   if (saddr == 0 || daddr == 0) {
-      connectsock.delete(&pid);
       return 0;
   }
 
@@ -200,10 +199,11 @@ int trace_connect_v6_return(struct pt_regs *ctx)
       return 0;       // missed entry
   }
 
+  connectsock.delete(&pid);
+
   if (ret != 0) {
       // failed to send SYNC packet, may not have populated
       // socket __sk_common.{skc_rcv_saddr, ...}
-      connectsock.delete(&pid);
       return 0;
   }
   //
@@ -229,7 +229,6 @@ int trace_connect_v6_return(struct pt_regs *ctx)
 
   // if ports are 0, ignore
   if (sport == 0 || dport == 0) {
-      connectsock.delete(&pid);
       return 0;
   }
 
@@ -241,7 +240,6 @@ int trace_connect_v6_return(struct pt_regs *ctx)
 
   // if addresses are 0, ignore
   if (saddr == 0 || daddr == 0) {
-      connectsock.delete(&pid);
       return 0;
   }
 
@@ -383,8 +381,6 @@ int trace_tcp_set_state_entry(struct pt_regs *ctx, struct sock *sk, int state)
       }
   }
   // else drop
-
-  connectsock.delete(&pid);
 
   return 0;
 }
