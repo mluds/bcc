@@ -66,3 +66,22 @@ map, bcc tools will display results from this shell. Cgroups can be added and
 removed from the BPF hash map without restarting the bcc tool.
 
 This feature is useful for integrating bcc tools in external projects.
+
+# Demonstrations of filtering by namespace
+
+The BPF hash map can be created by:
+
+```
+# bpftool map create /sys/fs/bpf/mnt_ns_set type hash key 8 value 4 entries 128 \
+        name mnt_ns_set flags 0
+```
+
+```
+# tools/execsnoop.py --mntnsmap /sys/fs/bpf/mnt_ns_set
+```
+
+```
+# FILE=/sys/fs/bpf/mnt_ns_set
+# NS_ID_HEX="$(printf '%016x' $(stat -Lc '%i' /proc/self/ns/mnt) | sed 's/.\{2\}/&\n/g' | tac)"
+# bpftool map update pinned $FILE key hex $NS_ID_HEX value hex 00 00 00 00 any
+```
