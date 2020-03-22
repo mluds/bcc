@@ -1,4 +1,10 @@
-# Demonstrations of filtering by cgroups
+# Special Filtering
+
+Some tools have special filtering capabitilies, the main use case is to trace
+processes running in containers, but those mechanisms are generic and could
+be used in other cases as well.
+
+## Filtering by cgroups
 
 Some tools have an option to filter by cgroup by referencing a pinned BPF hash
 map managed externally.
@@ -66,3 +72,30 @@ map, bcc tools will display results from this shell. Cgroups can be added and
 removed from the BPF hash map without restarting the bcc tool.
 
 This feature is useful for integrating bcc tools in external projects.
+
+## Filtering by mount by namespace
+
+The BPF hash map can be created by:
+
+```
+# bpftool map create /sys/fs/bpf/mnt_ns_set type hash key 8 value 4 entries 128 \
+        name mnt_ns_set flags 0
+```
+
+```
+# tools/execsnoop.py --mntnsmap /sys/fs/bpf/mnt_ns_set
+```
+
+Start a terminal in a new mount namespace
+
+```
+# unshare -m bash
+```
+
+Update the hash map with the mount namespace ID of the terminal above
+
+```
+# FILE=/sys/fs/bpf/mnt_ns_set
+# NS_ID_HEX="$(printf '%016x' $(stat -Lc '%i' /proc/self/ns/mnt) | sed 's/.\{2\}/&\n/g' | tac)"
+# bpftool map update pinned $FILE key hex $NS_ID_HEX value hex 00 00 00 00 any
+```
