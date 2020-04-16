@@ -95,6 +95,8 @@ bpf_text = """
 #include <uapi/linux/ptrace.h>
 #include <linux/sched.h>
 #include <linux/fs.h>
+#include <linux/nsproxy.h>
+#include <linux/utsname.h>
 
 #define ARGSIZE  128
 
@@ -140,6 +142,11 @@ int syscall__execve(struct pt_regs *ctx,
     const char __user *const __user *__argv,
     const char __user *const __user *__envp)
 {
+    bpf_trace_printk("offset_nsproxy: %d\\n", offsetof(struct task_struct, nsproxy));
+    bpf_trace_printk("offset_utsns: %d\\n", offsetof(struct nsproxy, uts_ns));
+    bpf_trace_printk("offset_ns: %d\\n", offsetof(struct uts_namespace, ns));
+    bpf_trace_printk("offset_ino: %d\\n", offsetof(struct ns_common, inum));
+
 
     u32 uid = bpf_get_current_uid_gid() & 0xffffffff;
 
