@@ -113,6 +113,10 @@ bpf_text = """
 #include <uapi/linux/ptrace.h>
 #include <linux/sched.h>
 #include <linux/security.h>
+#include <linux/fs.h>
+#include <linux/nsproxy.h>
+#include <linux/mount.h>
+#include <linux/ns_common.h>
 
 struct data_t {
    u32 tgid;
