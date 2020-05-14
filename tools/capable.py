@@ -29,8 +29,8 @@ examples = """examples:
     ./capable -U          # add user-space stacks to trace
     ./capable -x          # extra fields: show TID and INSETID columns
     ./capable --unique    # don't repeat stacks for the same pid or cgroup
-    ./capable --cgroupmap ./mappath  # only trace cgroups in this BPF map
-    ./capable --mntnsmap ./mappath   # only trace mount namespaces in the map
+    ./capable --cgroupmap mappath  # only trace cgroups in this BPF map
+    ./capable --mntnsmap mappath   # only trace mount namespaces in the map
 """
 parser = argparse.ArgumentParser(
     description="Trace security capability checks",

@@ -19,8 +19,8 @@
 
 from __future__ import print_function
 from bcc import BPF
-from bcc.utils import ArgString, printb
 from bcc.containers import filter_by_containers
+from bcc.utils import ArgString, printb
 import bcc.utils as utils
 import argparse
 import re
@@ -58,8 +58,8 @@ examples = """examples:
     ./execsnoop -q        # add "quotemarks" around arguments
     ./execsnoop -n main   # only print command lines containing "main"
     ./execsnoop -l tpkg   # only print command where arguments contains "tpkg"
-    ./execsnoop --cgroupmap ./mappath  # only trace cgroups in this BPF map
-    ./execsnoop --mntnsmap ./mappath   # only trace mount namespaces in the map
+    ./execsnoop --cgroupmap mappath  # only trace cgroups in this BPF map
+    ./execsnoop --mntnsmap mappath   # only trace mount namespaces in the map
 """
 parser = argparse.ArgumentParser(
     description="Trace exec() syscalls",
@@ -99,9 +99,6 @@ bpf_text = """
 #include <uapi/linux/ptrace.h>
 #include <linux/sched.h>
 #include <linux/fs.h>
-#include <linux/nsproxy.h>
-#include <linux/mount.h>
-#include <linux/ns_common.h>
 
 #define ARGSIZE  128
 

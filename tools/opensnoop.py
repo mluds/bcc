@@ -17,8 +17,8 @@
 
 from __future__ import print_function
 from bcc import ArgString, BPF
-from bcc.utils import printb
 from bcc.containers import filter_by_containers
+from bcc.utils import printb
 import argparse
 from datetime import datetime, timedelta
 import os
@@ -36,8 +36,8 @@ examples = """examples:
     ./opensnoop -n main   # only print process names containing "main"
     ./opensnoop -e        # show extended fields
     ./opensnoop -f O_WRONLY -f O_RDWR  # only print calls for writing
-    ./opensnoop --cgroupmap ./mappath  # only trace cgroups in this BPF map
-    ./opensnoop --mntnsmap ./mappath   # only trace mount namespaces in the map
+    ./opensnoop --cgroupmap mappath  # only trace cgroups in this BPF map
+    ./opensnoop --mntnsmap mappath   # only trace mount namespaces in the map
 """
 parser = argparse.ArgumentParser(
     description="Trace open() syscalls",
