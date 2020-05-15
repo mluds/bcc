@@ -149,9 +149,6 @@ struct repeat_t {
 BPF_HASH(seen, struct repeat_t, u64);
 #endif
 
-// defined in containers.py
-CONTAINERS_FILTER_HEADER
-
 #if defined(USER_STACKS) || defined(KERNEL_STACKS)
 BPF_STACK_TRACE(stacks, 2048);
 #endif
@@ -176,7 +173,10 @@ int kprobe__cap_capable(struct pt_regs *ctx, const struct cred *cred,
     FILTER1
     FILTER2
     FILTER3
-    CONTAINERS_FILTER_IMPL
+
+    if (container_should_be_filtered()) {
+        return 0;
+    }
 
     u32 uid = bpf_get_current_uid_gid();
     struct data_t data = {.tgid = tgid, .pid = pid, .uid = uid, .cap = cap, .audit = audit, .insetid = insetid};
@@ -227,7 +227,7 @@ bpf_text = bpf_text.replace('FILTER1', '')
 bpf_text = bpf_text.replace('FILTER2', '')
 bpf_text = bpf_text.replace('FILTER3',
     'if (pid == %s) { return 0; }' % getpid())
-bpf_text = filter_by_containers(bpf_text, args)
+bpf_text = filter_by_containers(args) + bpf_text
 if args.unique:
     bpf_text = bpf_text.replace('UNIQUESET', '1')
 else:

@@ -152,9 +152,6 @@ struct ipv6_flow_key_t {
 };
 BPF_HASH(ipv6_count, struct ipv6_flow_key_t);
 
-// defined in containers.py
-CONTAINERS_FILTER_HEADER
-
 // bind options for event reporting
 union bind_options {
     u8 data;
@@ -179,7 +176,9 @@ int bindsnoop_entry(struct pt_regs *ctx, struct socket *socket)
 
     FILTER_UID
 
-    CONTAINERS_FILTER_IMPL
+    if (container_should_be_filtered()) {
+        return 0;
+    }
 
     // stash the sock ptr for lookup on return
     currsock.update(&tid, &socket);
@@ -351,7 +350,7 @@ if args.uid:
         'if (uid != %s) { return 0; }' % args.uid)
 if args.errors:
     bpf_text = bpf_text.replace('FILTER_ERRORS', 'ignore_errors = 0;')
-bpf_text = filter_by_containers(bpf_text, args)
+bpf_text = filter_by_containers(args) + bpf_text
 bpf_text = bpf_text.replace('FILTER_PID', '')
 bpf_text = bpf_text.replace('FILTER_PORT', '')
 bpf_text = bpf_text.replace('FILTER_UID', '')

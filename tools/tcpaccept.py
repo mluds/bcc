@@ -84,9 +84,6 @@ struct ipv6_data_t {
     char task[TASK_COMM_LEN];
 };
 BPF_PERF_OUTPUT(ipv6_events);
-
-// defined in containers.py
-CONTAINERS_FILTER_HEADER
 """
 
 #
@@ -99,7 +96,9 @@ CONTAINERS_FILTER_HEADER
 bpf_text_kprobe = """
 int kretprobe__inet_csk_accept(struct pt_regs *ctx)
 {
-    CONTAINERS_FILTER_IMPL
+    if (container_should_be_filtered()) {
+        return 0;
+    }
 
     struct sock *newsk = (struct sock *)PT_REGS_RC(ctx);
     u32 pid = bpf_get_current_pid_tgid() >> 32;
@@ -196,7 +195,7 @@ if args.port:
     lports_if = ' && '.join(['lport != %d' % lport for lport in lports])
     bpf_text = bpf_text.replace('##FILTER_PORT##',
         'if (%s) { return 0; }' % lports_if)
-bpf_text = filter_by_containers(bpf_text, args)
+bpf_text = filter_by_containers(args) + bpf_text
 if debug or args.ebpf:
     print(bpf_text)
     if args.ebpf:

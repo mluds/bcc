@@ -106,9 +106,6 @@ struct data_t {
     int flags; // EXTENDED_STRUCT_MEMBER
 };
 
-// defined in containers.py
-CONTAINERS_FILTER_HEADER
-
 BPF_PERF_OUTPUT(events);
 """
 
@@ -126,7 +123,11 @@ int trace_entry(struct pt_regs *ctx, int dfd, const char __user *filename, int f
     PID_TID_FILTER
     UID_FILTER
     FLAGS_FILTER
-    CONTAINERS_FILTER_IMPL
+
+    if (container_should_be_filtered()) {
+        return 0;
+    }
+
     if (bpf_get_current_comm(&val.comm, sizeof(val.comm)) == 0) {
         val.id = id;
         val.fname = filename;
@@ -176,7 +177,9 @@ KRETFUNC_PROBE(do_sys_open, int dfd, const char __user *filename, int flags, int
     PID_TID_FILTER
     UID_FILTER
     FLAGS_FILTER
-    CONTAINERS_FILTER_IMPL
+    if (container_should_be_filtered()) {
+        return;
+    }
 
     struct data_t data = {};
     bpf_get_current_comm(&data.comm, sizeof(data.comm));
@@ -213,7 +216,7 @@ if args.uid:
         'if (uid != %s) { return 0; }' % args.uid)
 else:
     bpf_text = bpf_text.replace('UID_FILTER', '')
-bpf_text = filter_by_containers(bpf_text, args)
+bpf_text = filter_by_containers(args) + bpf_text
 if args.flag_filter:
     bpf_text = bpf_text.replace('FLAGS_FILTER',
         'if (!(flags & %d)) { return 0; }' % flag_filter_mask)

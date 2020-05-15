@@ -82,9 +82,6 @@ struct tcp_ipv6_event_t {
 };
 BPF_PERF_OUTPUT(tcp_ipv6_event);
 
-// defined in containers.py
-CONTAINERS_FILTER_HEADER
-
 // tcp_set_state doesn't run in the context of the process that initiated the
 // connection so we need to store a map TUPLE -> PID to send the right PID on
 // the event
@@ -181,7 +178,9 @@ static bool check_family(struct sock *sk, u16 expected_family) {
 
 int trace_connect_v4_entry(struct pt_regs *ctx, struct sock *sk)
 {
-  CONTAINERS_FILTER_IMPL
+  if (container_should_be_filtered()) {
+    return 0;
+  }
 
   u64 pid = bpf_get_current_pid_tgid();
 
@@ -230,7 +229,9 @@ int trace_connect_v4_return(struct pt_regs *ctx)
 
 int trace_connect_v6_entry(struct pt_regs *ctx, struct sock *sk)
 {
-  CONTAINERS_FILTER_IMPL
+  if (container_should_be_filtered()) {
+    return 0;
+  }
   u64 pid = bpf_get_current_pid_tgid();
 
   ##FILTER_PID##
@@ -363,7 +364,9 @@ int trace_tcp_set_state_entry(struct pt_regs *ctx, struct sock *skp, int state)
 
 int trace_close_entry(struct pt_regs *ctx, struct sock *skp)
 {
-  CONTAINERS_FILTER_IMPL
+  if (container_should_be_filtered()) {
+    return 0;
+  }
 
   u64 pid = bpf_get_current_pid_tgid();
 
@@ -426,7 +429,9 @@ int trace_close_entry(struct pt_regs *ctx, struct sock *skp)
 
 int trace_accept_return(struct pt_regs *ctx)
 {
-  CONTAINERS_FILTER_IMPL
+  if (container_should_be_filtered()) {
+    return 0;
+  }
 
   struct sock *newsk = (struct sock *)PT_REGS_RC(ctx);
   u64 pid = bpf_get_current_pid_tgid();
@@ -596,7 +601,7 @@ if args.netns:
 
 bpf_text = bpf_text.replace('##FILTER_PID##', pid_filter)
 bpf_text = bpf_text.replace('##FILTER_NETNS##', netns_filter)
-bpf_text = filter_by_containers(bpf_text, args)
+bpf_text = filter_by_containers(args) + bpf_text
 
 if args.ebpf:
     print(bpf_text)

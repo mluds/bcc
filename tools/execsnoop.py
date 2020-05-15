@@ -117,9 +117,6 @@ struct data_t {
     int retval;
 };
 
-// defined in containers.py
-CONTAINERS_FILTER_HEADER
-
 BPF_PERF_OUTPUT(events);
 
 static int __submit_arg(struct pt_regs *ctx, void *ptr, struct data_t *data)
@@ -149,7 +146,9 @@ int syscall__execve(struct pt_regs *ctx,
 
     UID_FILTER
 
-    CONTAINERS_FILTER_IMPL
+    if (container_should_be_filtered()) {
+        return 0;
+    }
 
     // create data here and pass to submit_arg to save stack space (#555)
     struct data_t data = {};
@@ -184,7 +183,9 @@ out:
 
 int do_ret_sys_execve(struct pt_regs *ctx)
 {
-    CONTAINERS_FILTER_IMPL
+    if (container_should_be_filtered()) {
+        return 0;
+    }
 
     struct data_t data = {};
     struct task_struct *task;
@@ -217,7 +218,7 @@ if args.uid:
         'if (uid != %s) { return 0; }' % args.uid)
 else:
     bpf_text = bpf_text.replace('UID_FILTER', '')
-bpf_text = filter_by_containers(bpf_text, args)
+bpf_text = filter_by_containers(args) + bpf_text
 if args.ebpf:
     print(bpf_text)
     exit()

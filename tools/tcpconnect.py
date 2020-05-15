@@ -74,9 +74,6 @@ bpf_text = """
 
 BPF_HASH(currsock, u32, struct sock *);
 
-// defined in containers.py
-CONTAINERS_FILTER_HEADER
-
 // separate data structs for ipv4 and ipv6
 struct ipv4_data_t {
     u64 ts_us;
@@ -119,7 +116,9 @@ BPF_HASH(ipv6_count, struct ipv6_flow_key_t);
 
 int trace_connect_entry(struct pt_regs *ctx, struct sock *sk)
 {
-    CONTAINERS_FILTER_IMPL
+    if (container_should_be_filtered()) {
+        return 0;
+    }
 
     u64 pid_tgid = bpf_get_current_pid_tgid();
     u32 pid = pid_tgid >> 32;
@@ -246,7 +245,7 @@ if args.port:
 if args.uid:
     bpf_text = bpf_text.replace('FILTER_UID',
         'if (uid != %s) { return 0; }' % args.uid)
-bpf_text = filter_by_containers(bpf_text, args)
+bpf_text = filter_by_containers(args) + bpf_text
 
 bpf_text = bpf_text.replace('FILTER_PID', '')
 bpf_text = bpf_text.replace('FILTER_PORT', '')

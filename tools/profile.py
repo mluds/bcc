@@ -150,9 +150,6 @@ struct key_t {
 BPF_HASH(counts, struct key_t);
 BPF_STACK_TRACE(stack_traces, STACK_STORAGE_SIZE);
 
-// defined in containers.py
-CONTAINERS_FILTER_HEADER
-
 // This code gets a bit complex. Probably not suitable for casual hacking.
 
 int do_perf_event(struct bpf_perf_event_data *ctx) {
@@ -166,7 +163,9 @@ int do_perf_event(struct bpf_perf_event_data *ctx) {
     if (!(THREAD_FILTER))
         return 0;
 
-    CONTAINERS_FILTER_IMPL
+    if (container_should_be_filtered()) {
+        return 0;
+    }
 
     // create map key
     struct key_t key = {.pid = tgid};
@@ -244,7 +243,7 @@ else:
     stack_context = "user + kernel"
 bpf_text = bpf_text.replace('USER_STACK_GET', user_stack_get)
 bpf_text = bpf_text.replace('KERNEL_STACK_GET', kernel_stack_get)
-bpf_text = filter_by_containers(bpf_text, args)
+bpf_text = filter_by_containers(args) + bpf_text
 
 sample_freq = 0
 sample_period = 0

@@ -102,13 +102,12 @@ struct ipv6_key_t {
 BPF_HASH(ipv6_send_bytes, struct ipv6_key_t);
 BPF_HASH(ipv6_recv_bytes, struct ipv6_key_t);
 
-// defined in containers.py
-CONTAINERS_FILTER_HEADER
-
 int kprobe__tcp_sendmsg(struct pt_regs *ctx, struct sock *sk,
     struct msghdr *msg, size_t size)
 {
-    CONTAINERS_FILTER_IMPL
+    if (container_should_be_filtered()) {
+        return 0;
+    }
 
     u32 pid = bpf_get_current_pid_tgid() >> 32;
     FILTER_PID
@@ -148,7 +147,9 @@ int kprobe__tcp_sendmsg(struct pt_regs *ctx, struct sock *sk,
  */
 int kprobe__tcp_cleanup_rbuf(struct pt_regs *ctx, struct sock *sk, int copied)
 {
-    CONTAINERS_FILTER_IMPL
+    if (container_should_be_filtered()) {
+        return 0;
+    }
 
     u32 pid = bpf_get_current_pid_tgid() >> 32;
     FILTER_PID
@@ -191,7 +192,7 @@ if args.pid:
         'if (pid != %s) { return 0; }' % args.pid)
 else:
     bpf_text = bpf_text.replace('FILTER_PID', '')
-bpf_text = filter_by_containers(bpf_text, args)
+bpf_text = filter_by_containers(args) + bpf_text
 if debug or args.ebpf:
     print(bpf_text)
     if args.ebpf:
