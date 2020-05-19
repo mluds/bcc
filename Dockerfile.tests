@@ -1,5 +1,5 @@
-# Using ubuntu 19.04 for newer `unshare` command used in tests
-FROM ubuntu:19.04
+# Using ubuntu 19.10 for newer `unshare` command used in tests
+FROM ubuntu:19.10
 
 ARG LLVM_VERSION="8"
 ENV LLVM_VERSION=$LLVM_VERSION
