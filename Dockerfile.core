@@ -1,0 +1,46 @@
+ARG OS_TAG=20.04
+FROM ubuntu:${OS_TAG} as builder
+
+ARG OS_TAG
+ARG BUILD_TYPE=release
+ARG DEBIAN_FRONTEND=noninteractive
+
+COPY ./ /root/bcc
+
+RUN apt-get -qq update && \
+    apt-get -y install build-essential libelf-dev libfl-dev clang libcap-dev
+
+RUN cd /root/bcc/src/cc/libbpf/src/ && make
+RUN cd /root/bcc/libbpf-tools/ && LLVM_STRIP=llvm-strip-10 make
+
+FROM ubuntu:${OS_TAG}
+
+RUN apt-get -qq update && \
+    apt-get -y install libelf1 libfl2
+
+# TODO: find a way to avoid specifying all the names
+COPY --from=builder                     \
+    /root/bcc/libbpf-tools/biolatency   \
+    /root/bcc/libbpf-tools/biopattern   \
+    /root/bcc/libbpf-tools/biosnoop     \
+    /root/bcc/libbpf-tools/biostacks    \
+    /root/bcc/libbpf-tools/bitesize     \
+    /root/bcc/libbpf-tools/cpudist      \
+    /root/bcc/libbpf-tools/drsnoop      \
+    /root/bcc/libbpf-tools/execsnoop    \
+    /root/bcc/libbpf-tools/filelife     \
+    /root/bcc/libbpf-tools/hardirqs     \
+    /root/bcc/libbpf-tools/llcstat      \
+    /root/bcc/libbpf-tools/numamove     \
+    /root/bcc/libbpf-tools/opensnoop    \
+    /root/bcc/libbpf-tools/readahead    \
+    /root/bcc/libbpf-tools/runqlat      \
+    /root/bcc/libbpf-tools/runqlen      \
+    /root/bcc/libbpf-tools/runqslower   \
+    /root/bcc/libbpf-tools/softirqs     \
+    /root/bcc/libbpf-tools/syscount     \
+    /root/bcc/libbpf-tools/tcpconnect   \
+    /root/bcc/libbpf-tools/tcpconnlat   \
+    /root/bcc/libbpf-tools/vfsstat      \
+    /root/bcc/libbpf-tools/xfsslower    \
+    /bin/
