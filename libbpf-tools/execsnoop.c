@@ -28,6 +28,7 @@ static struct env {
 	bool print_uid;
 	bool verbose;
 	int max_args;
+	const char *mntnsmap;
 } env = {
 	.max_args = DEFAULT_MAXARGS,
 	.uid = INVALID_UID
@@ -66,6 +67,7 @@ static const struct argp_option opts[] = {
 	{ "max-args", MAX_ARGS_KEY, "MAX_ARGS", 0,
 		"maximum number of arguments parsed and displayed, defaults to 20"},
 	{ "verbose", 'v', NULL, 0, "Verbose debug output" },
+	{ "mntnsmap", 'm', "mountnspath", 0, "Trace mount namespaces in this BPF map only" },
 	{},
 };
 
@@ -120,6 +122,9 @@ static error_t parse_arg(int key, char *arg, struct argp_state *state)
 			argp_usage(state);
 		}
 		env.max_args = max_args;
+		break;
+	case 'm':
+		env.mntnsmap = arg;
 		break;
 	default:
 		return ARGP_ERR_UNKNOWN;
@@ -279,6 +284,20 @@ int main(int argc, char **argv)
 	obj->rodata->ignore_failed = !env.fails;
 	obj->rodata->targ_uid = env.uid;
 	obj->rodata->max_args = env.max_args;
+
+	if (env.mntnsmap != NULL) {
+		obj->rodata->filter_by_mnt_ns = true;
+
+		/* TODO:
+		 * - is there a way to avoid creating this map?
+		 * - check that map already exists!
+		 */
+		err = bpf_map__set_pin_path(obj->maps.mount_ns_set, env.mntnsmap);
+		if (err) {
+			fprintf(stderr, "failed to set pin path for mntnsmap\n");
+			goto cleanup;
+		}
+	}
 
 	err = execsnoop_bpf__load(obj);
 	if (err) {
