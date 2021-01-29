@@ -1,0 +1,32 @@
+FROM centos:7
+
+# Install various compilation tools
+RUN yum install -y epel-release
+RUN yum update -y
+RUN yum groupinstall -y "Development tools" --skip-broken
+RUN yum install -y elfutils-libelf-devel cmake3 git bison flex ncurses-devel --skip-broken
+RUN yum install -y luajit luajit-devel
+
+# Install LLVM from SCL
+RUN yum install -y centos-release-scl
+RUN yum-config-manager --enable rhel-server-rhscl-7-rpms
+RUN yum install -y devtoolset-7 llvm-toolset-7 llvm-toolset-7-llvm-devel llvm-toolset-7-llvm-static llvm-toolset-7-clang-devel
+
+# Enable LLVM SCL on shell login and add BCC tools to the PATH
+# You must reload your shell after this command
+RUN printf '#!/bin/bash\nsource scl_source enable devtoolset-7 llvm-toolset-7\nexport PATH=$PATH:/usr/share/bcc/tools\n' | tee /etc/profile.d/bcc.sh
+
+# Compile and install BCC
+WORKDIR /
+RUN git clone https://github.com/iovisor/bcc.git
+RUN mkdir bcc/build
+WORKDIR /bcc/build
+RUN source scl_source enable devtoolset-7 llvm-toolset-7; cmake3 ..
+RUN make
+RUN make install
+
+ENV PATH=$PATH:/usr/share/bcc/tools
+WORKDIR /usr/share/bcc
+
+# ./capable --help
+# ./syscount --help
